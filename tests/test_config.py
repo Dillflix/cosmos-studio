@@ -23,7 +23,10 @@ def test_typed_values_accept_dotenv_style_quotes(monkeypatch):
     assert _int("QUOTED_INT", 0) == 42
 
 
-def test_video_model_defaults_to_official_nano_checkpoint(monkeypatch):
+def test_video_model_defaults_to_full_super_nf4_checkpoint(monkeypatch):
     monkeypatch.delenv("COSMOS_STUDIO_COSMOS_VIDEO_MODEL", raising=False)
 
-    assert Settings.from_env().cosmos_video_model == "nvidia/Cosmos3-Nano"
+    assert (
+        Settings.from_env().cosmos_video_model
+        == "SanDiegoDude/Cosmos3-Super-nf4"
+    )

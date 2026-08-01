@@ -136,18 +136,24 @@ COSMOS_STUDIO_VACE_DEVICE=cuda:0
 COSMOS_STUDIO_EXPECTED_AUX_NAME=Radeon 8060S
 ```
 
-The default video checkpoint is the official `nvidia/Cosmos3-Nano` repository.
-Diffusers downloads it into the persistent Hugging Face cache on first use.
-The Fedora installer also migrates the old, nonfunctional
-`/models/Cosmos3-Super` placeholder to Nano. Local overrides must point to an
+The default video checkpoint is `SanDiegoDude/Cosmos3-Super-nf4`: the complete
+64B Cosmos3-Super omni model with its transformer pre-quantized to NF4. It
+retains text-to-video, image-to-video, optional sound, and the full Super model
+tier while reducing the loaded transformer enough for the 8060S. This is the
+same embedded bitsandbytes/NF4 loading pattern used by the supplied
+`Cosmos3-Super-Text2Image-nf4` reference server; it is not the smaller Nano
+model. Diffusers downloads it into the persistent Hugging Face cache on first
+use.
+
+The Fedora installer migrates only the old, nonfunctional
+`/models/Cosmos3-Super` placeholder. Existing real custom paths and explicitly
+selected model repositories are preserved. Local overrides must point to an
 actual Diffusers-format directory mounted under `/models`.
 
-Start with Cosmos image generation using the known NF4 checkpoint. Then test
-Cosmos video with the 16B Nano checkpoint. The full 64B Super model is not a
-safe single-device default on a 128 GB unified-memory GPU because BF16 weights
-alone leave insufficient runtime headroom. Finally test VACE on the 8060S,
-preferably beginning with the official 1.3B Diffusers checkpoint before the
-14B checkpoint.
+Start with Cosmos image generation using the known specialized Super NF4
+checkpoint. Then test Cosmos video with the full omni Super NF4 checkpoint.
+Finally test VACE on the 8060S, preferably beginning with the official 1.3B
+Diffusers checkpoint before the 14B checkpoint.
 
 The official Cosmos3 Diffusers pipeline accepts `image=` and `video=` alongside
 `num_frames`, `fps`, and scheduler controls. The VACE pipeline accepts full
