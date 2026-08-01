@@ -109,7 +109,7 @@ class Settings:
                 ),
             ),
             cosmos_video_model=_string(
-                "COSMOS_STUDIO_COSMOS_VIDEO_MODEL", "/models/Cosmos3-Super"
+                "COSMOS_STUDIO_COSMOS_VIDEO_MODEL", "nvidia/Cosmos3-Nano"
             ),
             cosmos_device=_string("COSMOS_STUDIO_COSMOS_DEVICE", "cuda:0"),
             cosmos_safety_checker=_bool(

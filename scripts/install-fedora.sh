@@ -130,6 +130,13 @@ fi
 set_env_value COSMOS_STUDIO_API_KEY "$api_key"
 set_env_value COSMOS_STUDIO_BACKEND "$BACKEND"
 set_env_value COSMOS_STUDIO_PORT "$PORT"
+video_model="$(env_value COSMOS_STUDIO_COSMOS_VIDEO_MODEL)"
+if [[ -n "${COSMOS_STUDIO_COSMOS_VIDEO_MODEL:-}" ]]; then
+  video_model="$COSMOS_STUDIO_COSMOS_VIDEO_MODEL"
+elif [[ -z "$video_model" || "$video_model" == "/models/Cosmos3-Super" ]]; then
+  video_model="nvidia/Cosmos3-Nano"
+fi
+set_env_value COSMOS_STUDIO_COSMOS_VIDEO_MODEL "$video_model"
 chmod 600 "$ENV_FILE"
 printf '%s\n' "$api_key" >"$API_KEY_FILE"
 chmod 600 "$API_KEY_FILE"

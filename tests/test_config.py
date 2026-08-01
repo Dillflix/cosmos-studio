@@ -21,3 +21,9 @@ def test_typed_values_accept_dotenv_style_quotes(monkeypatch):
     assert _string("QUOTED_STRING") == "value with spaces"
     assert _bool("QUOTED_BOOL", False) is True
     assert _int("QUOTED_INT", 0) == 42
+
+
+def test_video_model_defaults_to_official_nano_checkpoint(monkeypatch):
+    monkeypatch.delenv("COSMOS_STUDIO_COSMOS_VIDEO_MODEL", raising=False)
+
+    assert Settings.from_env().cosmos_video_model == "nvidia/Cosmos3-Nano"
