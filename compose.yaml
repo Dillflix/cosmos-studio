@@ -1,0 +1,28 @@
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        BASE_IMAGE: ${COSMOS_STUDIO_BASE_IMAGE:-localhost/cosmos3-rocm:7.2.4}
+    image: ${COSMOS_STUDIO_IMAGE:-localhost/cosmos-studio:0.1.0}
+    container_name: cosmos-studio
+    restart: unless-stopped
+    ipc: host
+    security_opt:
+      - label=disable
+      - seccomp=unconfined
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - keep-groups
+    ports:
+      - "${COSMOS_STUDIO_PORT:-8000}:8000"
+    env_file:
+      - ${COSMOS_STUDIO_ENV_FILE:-./server.env}
+    volumes:
+      - ${COSMOS_STUDIO_HOME:-${HOME}/ai/cosmos-studio}/data:/data:rw
+      - ${COSMOS_STUDIO_HOME:-${HOME}/ai/cosmos-studio}/outputs:/outputs:rw
+      - ${COSMOS_STUDIO_MODELS_DIR:-${HOME}/ai/cosmos3/models}:/models:rw
+      - ${COSMOS_STUDIO_CACHE_DIR:-${HOME}/ai/cosmos3/hf-cache}:/models/hf-cache:rw

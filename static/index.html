@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Unified Cosmos3 generation and Wan VACE editing studio">
+  <title>Cosmos Studio</title>
+  <link rel="stylesheet" href="/ui/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#create" aria-label="Cosmos Studio home">
+      <span class="brand-mark">C3</span>
+      <span><strong>Cosmos Studio</strong><small>World generation + VACE editing</small></span>
+    </a>
+    <nav aria-label="Primary">
+      <a href="#create">Create</a>
+      <a href="#queue">Queue <span id="queuePill" class="pill">0</span></a>
+      <a href="#gallery">Gallery</a>
+      <a href="/docs" target="_blank" rel="noreferrer">API</a>
+    </nav>
+    <button id="statusButton" class="status" type="button" aria-label="Open server details">
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Connecting</span>
+    </button>
+  </header>
+
+  <main>
+    <section id="create" class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">LOCAL GENERATION CONTROL PLANE</p>
+        <h1>One queue for images, worlds, and surgical video edits.</h1>
+        <p>Build with Cosmos3, continue from a source clip, or preserve and replace regions with Wan2.1-VACE.</p>
+      </div>
+      <div class="device-map" aria-label="Configured device map">
+        <div><span>Default runtime</span><strong id="profileName">8060S unified pool</strong></div>
+        <div><span>Active job</span><strong id="activeJob">None</strong></div>
+        <div><span>Backend</span><strong id="backendName">Loading</strong></div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <form id="generationForm" class="panel composer">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">NEW JOB</p>
+            <h2>Generation setup</h2>
+          </div>
+          <button id="resetButton" class="text-button" type="button">Reset</button>
+        </div>
+
+        <div class="field full">
+          <label for="mode">Mode</label>
+          <select id="mode" name="mode">
+            <optgroup label="Cosmos3">
+              <option value="cosmos_image">Image generation</option>
+              <option value="cosmos_text_video">Text to video</option>
+              <option value="cosmos_image_video">Image to video</option>
+              <option value="cosmos_video_continue">Video continuation</option>
+            </optgroup>
+            <optgroup label="Wan2.1-VACE">
+              <option value="vace_text_video">Text to video</option>
+              <option value="vace_reference_video">Reference image to video</option>
+              <option value="vace_control_edit">Control-video editing</option>
+            </optgroup>
+          </select>
+          <p id="modeHint" class="hint"></p>
+        </div>
+
+        <div class="field full">
+          <div class="label-row">
+            <label for="prompt">Prompt</label>
+            <button id="enhanceButton" class="text-button" type="button">Enhance now</button>
+          </div>
+          <textarea id="prompt" name="prompt" rows="5" required placeholder="Describe the shot, subject, motion, camera, light, and intended change."></textarea>
+        </div>
+
+        <div class="field full collapsible">
+          <label for="negativePrompt">Negative prompt</label>
+          <textarea id="negativePrompt" name="negative_prompt" rows="2" placeholder="Artifacts, motion, or visual traits to avoid"></textarea>
+        </div>
+
+        <div id="structuredWrap" class="field full hidden">
+          <div class="label-row">
+            <label for="structuredPrompt">Enhanced prompt JSON</label>
+            <button id="clearStructured" class="text-button" type="button">Use plain prompt</button>
+          </div>
+          <textarea id="structuredPrompt" name="structured_prompt" rows="7"></textarea>
+        </div>
+
+        <div class="option-row full">
+          <label><input id="enhancePrompt" name="enhance_prompt" type="checkbox" checked> Enhance when the worker starts</label>
+          <label><input id="fallbackPlain" name="enhancement_fallback_to_plain" type="checkbox" checked> Fall back to plain prompt</label>
+          <label data-cosmos-video><input id="enableSound" name="enable_sound" type="checkbox"> Generate sound when supported</label>
+        </div>
+
+        <div class="upload-grid full">
+          <label class="upload-card" data-modes="cosmos_image_video">
+            <span>Starting image</span><small>PNG, JPEG, or WebP</small>
+            <input id="imageInput" name="image" type="file" accept="image/png,image/jpeg,image/webp">
+          </label>
+          <label class="upload-card" data-modes="cosmos_video_continue">
+            <span>Source video</span><small>Condition the opening latent frames</small>
+            <input id="sourceVideo" name="source_video" type="file" accept="video/*">
+          </label>
+          <label class="upload-card" data-modes="vace_control_edit">
+            <span>Control / source video</span><small>Pose, depth, edge, layout, or source frames</small>
+            <input id="controlVideo" name="control_video" type="file" accept="video/*">
+          </label>
+          <label class="upload-card" data-modes="vace_control_edit">
+            <span>Optional mask</span><small>White regenerates; black preserves</small>
+            <input id="maskInput" name="mask" type="file" accept="image/*,video/*">
+          </label>
+          <label class="upload-card" data-modes="vace_reference_video vace_control_edit">
+            <span>Reference image(s)</span><small>Subject, object, or replacement guidance</small>
+            <input id="referenceImages" name="reference_images" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+          </label>
+        </div>
+
+        <details class="advanced full">
+          <summary>Generation controls</summary>
+          <div class="control-grid">
+            <div class="field"><label for="size">Resolution</label><select id="size" name="size"></select></div>
+            <div class="field" data-video><label for="numFrames">Frames</label><input id="numFrames" name="num_frames" type="number" min="5" max="241" step="4"></div>
+            <div class="field" data-video><label for="fps">FPS</label><input id="fps" name="fps" type="number" min="1" max="60" step="1"></div>
+            <div class="field"><label for="steps">Inference steps</label><input id="steps" name="num_inference_steps" type="number" min="1" max="100"></div>
+            <div class="field"><label for="guidance">Guidance</label><input id="guidance" name="guidance_scale" type="number" min="0" max="30" step="0.1"></div>
+            <div class="field"><label for="flowShift">Flow shift</label><input id="flowShift" name="flow_shift" type="number" min="0" max="30" step="0.1"></div>
+            <div class="field" data-vace><label for="conditioningScale">Control strength</label><input id="conditioningScale" name="conditioning_scale" type="number" min="0" max="3" step="0.05" value="1"></div>
+            <div class="field" data-image><label for="outputFormat">Image format</label><select id="outputFormat" name="output_format"><option>png</option><option>jpeg</option><option>webp</option></select></div>
+          </div>
+        </details>
+
+        <div class="seed-row full">
+          <div class="field"><label for="seed">Seed</label><input id="seed" name="seed" type="number" min="0" max="9223372036854775807"></div>
+          <button id="newSeed" class="secondary-button" type="button">New seed</button>
+          <label><input id="advanceSeed" type="checkbox" checked> Advance after enqueue</label>
+        </div>
+
+        <div class="submit-row full">
+          <button id="queueButton" class="primary-button" type="submit">Queue generation</button>
+          <p id="formMessage" class="form-message" role="status"></p>
+        </div>
+      </form>
+
+      <aside class="panel connection-panel">
+        <div class="panel-heading"><div><p class="eyebrow">ACCESS</p><h2>Connection</h2></div></div>
+        <div class="field"><label for="apiKey">API key</label><input id="apiKey" type="password" autocomplete="off" placeholder="Only required when configured"></div>
+        <label class="remember"><input id="rememberKey" type="checkbox"> Remember on this device</label>
+        <button id="saveKey" class="secondary-button" type="button">Save key</button>
+        <hr>
+        <dl class="metrics">
+          <div><dt>Queued</dt><dd id="metricQueued">0</dd></div>
+          <div><dt>Completed</dt><dd id="metricCompleted">0</dd></div>
+          <div><dt>Failed</dt><dd id="metricFailed">0</dd></div>
+        </dl>
+        <p class="security-note">Media links are readable on the LAN. Keep the API key enabled and do not port-forward this service to the public internet.</p>
+      </aside>
+    </section>
+
+    <section id="queue" class="section-block">
+      <div class="section-heading"><div><p class="eyebrow">DURABLE JOBS</p><h2>Queue</h2></div><button id="refreshJobs" class="secondary-button" type="button">Refresh</button></div>
+      <div id="jobList" class="job-list"><p class="empty">No jobs yet.</p></div>
+    </section>
+
+    <section id="gallery" class="section-block">
+      <div class="section-heading"><div><p class="eyebrow">SERVER GALLERY</p><h2>Outputs</h2></div><button id="refreshGallery" class="secondary-button" type="button">Refresh</button></div>
+      <div id="galleryGrid" class="gallery-grid"><p class="empty">Completed work appears here from every LAN browser.</p></div>
+    </section>
+  </main>
+
+  <dialog id="statusDialog">
+    <div class="dialog-heading"><h2>Server details</h2><button id="closeDialog" type="button" aria-label="Close">×</button></div>
+    <pre id="statusJson"></pre>
+  </dialog>
+  <script src="/ui/app.js" defer></script>
+</body>
+</html>
