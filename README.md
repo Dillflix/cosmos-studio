@@ -33,9 +33,10 @@ and GPU order. The supported rollback is the complete VACE pipeline on the
 
 ## Quick start on Fedora
 
-The container defaults to the original local base image name,
-`localhost/cosmos3-rocm:7.2.4`, because that is the environment in which the
-supplied Cosmos image server ran.
+The container defaults to the original prompt-capable server image,
+`localhost/cosmos3-rocm-server:7.2.4`. That image contains the
+`cosmos_framework.inference.prompt_upsampling` module used by prompt
+enhancement; the lower-level `localhost/cosmos3-rocm:7.2.4` image does not.
 
 For a new installation on the existing Cosmos3 Fedora host, run:
 

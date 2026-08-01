@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Containerfile
       args:
-        BASE_IMAGE: ${COSMOS_STUDIO_BASE_IMAGE:-localhost/cosmos3-rocm:7.2.4}
+        BASE_IMAGE: ${COSMOS_STUDIO_BASE_IMAGE:-localhost/cosmos3-rocm-server:7.2.4}
     image: ${COSMOS_STUDIO_IMAGE:-localhost/cosmos-studio:0.1.0}
     container_name: cosmos-studio
     restart: unless-stopped
