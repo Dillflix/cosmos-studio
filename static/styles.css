@@ -67,6 +67,9 @@ input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--cyan); }
 .advanced { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 16px 0; }
 .advanced summary { color: #d8dde5; font-weight: 700; }
 .control-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 15px; padding-top: 18px; }
+.resolution-preset { grid-column: span 2; }
+.resolution-custom { grid-column: span 2; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.resolution-preset .hint { min-height: 34px; }
 .seed-row { display: grid; grid-template-columns: minmax(200px, 1fr) auto auto; align-items: end; gap: 12px; }
 button { border: 0; }
 .primary-button { min-height: 52px; padding: 0 25px; border-radius: 12px; background: var(--cyan); color: #061c1a; font-weight: 850; }
@@ -95,6 +98,7 @@ button { border: 0; }
 .job-meta { margin-top: 6px; color: var(--muted); font-size: 11px; }
 .job-actions { display: flex; gap: 8px; }
 .danger-button { padding: 9px 11px; border: 1px solid #61333a; border-radius: 9px; background: #241317; color: #ffadb2; }
+.danger-button:disabled { cursor: wait; opacity: .65; }
 .progress-track { height: 3px; margin-top: 10px; overflow: hidden; border-radius: 99px; background: #262e3a; }.progress-fill { height: 100%; background: var(--cyan); }
 .gallery-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 .gallery-card { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }

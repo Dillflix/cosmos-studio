@@ -190,6 +190,13 @@ class JobStore:
                 (max(0.0, min(value, 0.99)), message, job_id, JobState.RUNNING),
             )
 
+    def is_cancel_requested(self, job_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            return bool(row and row["cancel_requested"])
+
     def complete(
         self,
         job_id: str,
@@ -249,7 +256,7 @@ class JobStore:
                 connection.execute(
                     """
                     UPDATE jobs SET cancel_requested = 1,
-                        progress_message = 'Cancellation requested'
+                        progress_message = 'Stopping isolated inference process'
                     WHERE id = ?
                     """,
                     (job_id,),

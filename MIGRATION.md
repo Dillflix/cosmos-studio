@@ -34,6 +34,13 @@
 7. **Ad-hoc launch files to an installable project.** A Containerfile, compose
    file, environment template, installer, launcher, firewall helper, and smoke
    test live beside the application.
+8. **Blocking model thread to isolated inference.** A persistent child process
+   owns all model and ROCm state. The queue supervisor can terminate and replace
+   it when cancellation or a wedged native operation would otherwise block every
+   later job.
+9. **Fixed resolution list to guided custom sizing.** Native presets remain
+   prominent, practical square/landscape/portrait sizes are included, and custom
+   dimensions receive matching browser and server validation.
 
 ## Deployment sequence
 

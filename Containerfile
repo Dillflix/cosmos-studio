@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=localhost/cosmos3-rocm:7.2.4
+ARG BASE_IMAGE=localhost/cosmos3-rocm-server:7.2.4
 FROM ${BASE_IMAGE}
 
 WORKDIR /app

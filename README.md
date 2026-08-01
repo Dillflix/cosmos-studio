@@ -33,9 +33,38 @@ and GPU order. The supported rollback is the complete VACE pipeline on the
 
 ## Quick start on Fedora
 
-The container defaults to the original local base image name,
-`localhost/cosmos3-rocm:7.2.4`, because that is the environment in which the
-supplied Cosmos image server ran.
+The container defaults to the original prompt-capable server image,
+`localhost/cosmos3-rocm-server:7.2.4`. That image contains the
+`cosmos_framework.inference.prompt_upsampling` module used by prompt
+enhancement; the lower-level `localhost/cosmos3-rocm:7.2.4` image does not.
+
+For a new installation on the existing Cosmos3 Fedora host, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Dillflix/cosmos-studio/main/scripts/install-fedora.sh | bash
+```
+
+The installer adds the Fedora packages it needs, clones or safely updates the
+project under `~/ai`, builds and starts the rootless Podman container, creates a
+random API key, waits for a healthy server, and adds a source-restricted
+firewalld rule for the detected LAN. It keeps an existing private configuration
+and refuses to overwrite a modified source checkout. The original local ROCm
+base image, `/dev/kfd`, and `/dev/dri` must already be present.
+
+It deliberately starts with the mock backend. To request the real Diffusers
+backend during installation (only after model paths and GPU ordering are known):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Dillflix/cosmos-studio/main/scripts/install-fedora.sh \
+  | env COSMOS_STUDIO_BACKEND=diffusers bash
+```
+
+Useful overrides include `COSMOS_STUDIO_LAN_SUBNET=192.168.0.0/24`,
+`COSMOS_STUDIO_PORT=8000`, `COSMOS_STUDIO_BASE_IMAGE=localhost/your-image:tag`,
+and `COSMOS_STUDIO_CONFIGURE_FIREWALL=0`. The generated API key is stored with
+mode `0600` at `~/.config/cosmos-studio/api-key`.
+
+For a manual installation instead:
 
 ```bash
 cd /path/to/cosmos-studio
@@ -107,14 +136,31 @@ COSMOS_STUDIO_VACE_DEVICE=cuda:0
 COSMOS_STUDIO_EXPECTED_AUX_NAME=Radeon 8060S
 ```
 
-Set every model path to an actual Diffusers-format directory mounted under
-`/models`. The placeholder `/models/Cosmos3-Super` is not downloaded or
-converted automatically.
+The default video checkpoint is `SanDiegoDude/Cosmos3-Super-nf4`: the complete
+64B Cosmos3-Super omni model with its transformer pre-quantized to NF4. It
+retains text-to-video, image-to-video, optional sound, and the full Super model
+tier while reducing the loaded transformer enough for the 8060S. This is the
+same embedded bitsandbytes/NF4 loading pattern used by the supplied
+`Cosmos3-Super-Text2Image-nf4` reference server; it is not the smaller Nano
+model. Diffusers downloads it into the persistent Hugging Face cache on first
+use.
 
-Start with Cosmos image generation using the known NF4 checkpoint. Then test
-Cosmos video with a compatible omni/video checkpoint. Finally test VACE on the
-8060S, preferably beginning with the official 1.3B Diffusers checkpoint before
-the 14B checkpoint.
+The community omni checkpoint declares Cosmos3's optional robotics/action head
+but does not contain that head's five projection tensors. Cosmos Studio
+explicitly disables only that unused head while loading video modes. This
+avoids Diffusers leaving missing tensors on the `meta` device; it does not
+replace, dequantize, or omit any image, video, text, audio, or backbone weights.
+Action-conditioned world-model generation is not exposed by this application.
+
+The Fedora installer migrates only the old, nonfunctional
+`/models/Cosmos3-Super` placeholder. Existing real custom paths and explicitly
+selected model repositories are preserved. Local overrides must point to an
+actual Diffusers-format directory mounted under `/models`.
+
+Start with Cosmos image generation using the known specialized Super NF4
+checkpoint. Then test Cosmos video with the full omni Super NF4 checkpoint.
+Finally test VACE on the 8060S, preferably beginning with the official 1.3B
+Diffusers checkpoint before the 14B checkpoint.
 
 The official Cosmos3 Diffusers pipeline accepts `image=` and `video=` alongside
 `num_frames`, `fps`, and scheduler controls. The VACE pipeline accepts full
@@ -172,10 +218,20 @@ caption; this is not a VACE-specific official prompt enhancer.
 - Jobs run one at a time in creation order.
 - A restart puts interrupted `running` jobs back in `queued` without changing
   the seed.
-- Queued jobs cancel immediately. Running cancellation is cooperative and takes
-  effect after the current pipeline call returns.
+- Queued jobs cancel immediately. A running job executes in an isolated model
+  process; cancellation terminates that process even if ROCm or VAE decoding is
+  stuck, then advances the queue with a fresh process.
 - Switching between Cosmos and VACE unloads the prior runtime before loading
   the next. Grouping jobs by model family reduces reload time.
+
+## Resolution controls
+
+The browser groups model-native resolutions separately from balanced and fast
+diagnostic presets. Both Cosmos and VACE include square, landscape, and portrait
+choices at 512, 640, and 768-class sizes. Selecting **Custom width × height**
+accepts dimensions from 256 through 2048; both values must be divisible by 16.
+The browser shows relative pixel cost and the server repeats the same validation
+for every UI and API request.
 
 ## APIs
 

@@ -5,19 +5,29 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-def _bool(name: str, default: bool) -> bool:
+def _string(name: str, default: str = "") -> str:
+    """Read dotenv-style values passed literally by Podman's --env-file."""
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
+def _bool(name: str, default: bool) -> bool:
+    if name not in os.environ:
+        return default
+    return _string(name).lower() in {"1", "true", "yes", "on"}
 
 
 def _int(name: str, default: int) -> int:
-    return int(os.getenv(name, str(default)))
+    return int(_string(name, str(default)))
 
 
 def _path(name: str, default: str) -> Path:
-    return Path(os.getenv(name, default)).expanduser().resolve()
+    return Path(_string(name, default)).expanduser().resolve()
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,12 +70,12 @@ class Settings:
         data_dir = _path("COSMOS_STUDIO_DATA_DIR", "/data")
         return cls(
             app_name="Cosmos Studio",
-            host=os.getenv("COSMOS_STUDIO_HOST", "0.0.0.0"),
+            host=_string("COSMOS_STUDIO_HOST", "0.0.0.0"),
             port=_int("COSMOS_STUDIO_PORT", 8000),
-            api_key=os.getenv(
-                "COSMOS_STUDIO_API_KEY", os.getenv("COSMOS_API_KEY", "")
+            api_key=_string(
+                "COSMOS_STUDIO_API_KEY", _string("COSMOS_API_KEY", "")
             ),
-            backend=os.getenv("COSMOS_STUDIO_BACKEND", "mock").lower(),
+            backend=_string("COSMOS_STUDIO_BACKEND", "mock").lower(),
             data_dir=data_dir,
             db_path=_path("COSMOS_STUDIO_DB_PATH", str(data_dir / "studio.sqlite3")),
             upload_dir=_path("COSMOS_STUDIO_UPLOAD_DIR", str(data_dir / "uploads")),
@@ -77,48 +87,49 @@ class Settings:
             max_upload_mib=_int("COSMOS_STUDIO_MAX_UPLOAD_MIB", 1024),
             gallery_limit=_int("COSMOS_STUDIO_GALLERY_LIMIT", 100),
             worker_poll_seconds=float(
-                os.getenv("COSMOS_STUDIO_WORKER_POLL_SECONDS", "1.0")
+                _string("COSMOS_STUDIO_WORKER_POLL_SECONDS", "1.0")
             ),
-            device_profile=os.getenv(
+            device_profile=_string(
                 "COSMOS_STUDIO_DEVICE_PROFILE", "amd_8060s"
             ).lower(),
-            aux_device=os.getenv("COSMOS_STUDIO_AUX_DEVICE", "cuda:0"),
-            denoiser_device=os.getenv(
+            aux_device=_string("COSMOS_STUDIO_AUX_DEVICE", "cuda:0"),
+            denoiser_device=_string(
                 "COSMOS_STUDIO_DENOISER_DEVICE", "cuda:1"
             ),
-            expected_aux_name=os.getenv(
+            expected_aux_name=_string(
                 "COSMOS_STUDIO_EXPECTED_AUX_NAME", "Radeon 8060S"
             ),
-            expected_denoiser_name=os.getenv(
+            expected_denoiser_name=_string(
                 "COSMOS_STUDIO_EXPECTED_DENOISER_NAME", "RX 7900 XT"
             ),
-            cosmos_image_model=os.getenv(
+            cosmos_image_model=_string(
                 "COSMOS_STUDIO_COSMOS_IMAGE_MODEL",
-                os.getenv(
+                _string(
                     "COSMOS_MODEL_PATH", "/models/Cosmos3-Super-Text2Image-nf4"
                 ),
             ),
-            cosmos_video_model=os.getenv(
-                "COSMOS_STUDIO_COSMOS_VIDEO_MODEL", "/models/Cosmos3-Super"
+            cosmos_video_model=_string(
+                "COSMOS_STUDIO_COSMOS_VIDEO_MODEL",
+                "SanDiegoDude/Cosmos3-Super-nf4",
             ),
-            cosmos_device=os.getenv("COSMOS_STUDIO_COSMOS_DEVICE", "cuda:0"),
+            cosmos_device=_string("COSMOS_STUDIO_COSMOS_DEVICE", "cuda:0"),
             cosmos_safety_checker=_bool(
                 "COSMOS_STUDIO_COSMOS_SAFETY_CHECKER", True
             ),
             skip_allocator_warmup=_bool(
                 "COSMOS_STUDIO_SKIP_ALLOCATOR_WARMUP", True
             ),
-            vace_model=os.getenv(
+            vace_model=_string(
                 "COSMOS_STUDIO_VACE_MODEL",
                 "/models/Wan2.1-VACE-14B-diffusers",
             ),
-            vace_device=os.getenv("COSMOS_STUDIO_VACE_DEVICE", "cuda:0"),
-            vace_transformer_file=os.getenv(
+            vace_device=_string("COSMOS_STUDIO_VACE_DEVICE", "cuda:0"),
+            vace_transformer_file=_string(
                 "COSMOS_STUDIO_VACE_TRANSFORMER_FILE", ""
             ),
-            prompt_endpoint=os.getenv("PROMPT_UPSAMPLER_ENDPOINT_URL", ""),
-            prompt_model=os.getenv("PROMPT_UPSAMPLER_MODEL_NAME", ""),
-            prompt_token=os.getenv(
+            prompt_endpoint=_string("PROMPT_UPSAMPLER_ENDPOINT_URL", ""),
+            prompt_model=_string("PROMPT_UPSAMPLER_MODEL_NAME", ""),
+            prompt_token=_string(
                 "PROMPT_UPSAMPLER_API_TOKEN", "not-required"
             ),
             prompt_timeout_seconds=_int(

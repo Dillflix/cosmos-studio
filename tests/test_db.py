@@ -44,3 +44,15 @@ def test_queued_job_can_be_cancelled(tmp_path: Path) -> None:
     store.enqueue(record("job"))
     assert store.request_cancel("job") == "cancelled"
     assert store.get("job")["state"] == "cancelled"
+
+
+def test_running_cancel_flag_is_visible_to_inference_supervisor(tmp_path: Path) -> None:
+    store = JobStore(tmp_path / "jobs.sqlite3")
+    store.initialize()
+    store.enqueue(record("job"))
+    assert store.claim_next()["state"] == "running"
+    assert not store.is_cancel_requested("job")
+    assert store.request_cancel("job") == "running"
+    assert store.is_cancel_requested("job")
+    assert store.mark_cancelled_after_run("job")
+    assert store.get("job")["state"] == "cancelled"

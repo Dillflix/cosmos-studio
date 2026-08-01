@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,8 @@ from typing import Any
 from ..config import Settings
 from ..prompting import parse_size
 from .base import GenerationResult, ProgressCallback
+
+logger = logging.getLogger("cosmos-studio.runtime.cosmos")
 
 
 class CosmosRuntime:
@@ -31,9 +34,23 @@ class CosmosRuntime:
         loading._caching_allocator_warmup = skip
         modeling._caching_allocator_warmup = skip
 
+    @staticmethod
+    def _loader_device_map(device: str) -> str:
+        if device == "cuda" or device.startswith("cuda:"):
+            return "cuda"
+        if device == "cpu":
+            return "cpu"
+        raise ValueError(f"Unsupported Cosmos device {device!r}")
+
+    @staticmethod
+    def _denoise_progress(step_index: int, total_steps: int) -> float:
+        """Map a completed Diffusers step onto the job progress interval."""
+        completed = min(max(step_index + 1, 0), max(total_steps, 1))
+        return 0.15 + (0.68 * completed / max(total_steps, 1))
+
     def _ensure_loaded(self, mode: str, progress: ProgressCallback) -> None:
         import torch
-        from diffusers import Cosmos3OmniPipeline
+        from diffusers import Cosmos3OmniPipeline, Cosmos3OmniTransformer
 
         model = (
             self.settings.cosmos_image_model
@@ -50,6 +67,10 @@ class CosmosRuntime:
             if ":" in self.settings.cosmos_device
             else 0
         )
+        # Diffusers accepts the strategy name "cuda", not an indexed device
+        # such as "cuda:0". Select the indexed PyTorch device first so the
+        # strategy resolves to the configured GPU.
+        torch.cuda.set_device(device_index)
         actual_name = torch.cuda.get_device_name(device_index)
         expected_name = self.settings.expected_aux_name
         if expected_name and expected_name.lower() not in actual_name.lower():
@@ -58,12 +79,37 @@ class CosmosRuntime:
                 f"{self.settings.cosmos_device}, found {actual_name!r}"
             )
         progress(0.05, f"Loading Cosmos checkpoint {model}")
+        transformer = None
+        if mode != "cosmos_image":
+            # The community Super NF4 omni checkpoint has no action-control
+            # projection tensors, although its transformer config enables that
+            # optional head. With low-memory loading, Diffusers leaves those
+            # absent tensors on the meta device and Accelerate then fails while
+            # dispatching the otherwise fully loaded model. Cosmos Studio does
+            # not expose action-conditioned generation, so construct the
+            # transformer with only that unused head disabled. Vision and sound
+            # generation weights, including the quantized 64B backbone, are
+            # loaded unchanged.
+            progress(0.06, "Loading Cosmos transformer (action head disabled)")
+            transformer = Cosmos3OmniTransformer.from_pretrained(
+                model,
+                subfolder="transformer",
+                torch_dtype=torch.bfloat16,
+                device_map=self._loader_device_map(self.settings.cosmos_device),
+                low_cpu_mem_usage=True,
+                action_gen=False,
+            )
+        pipeline_kwargs: dict[str, Any] = {
+            "torch_dtype": torch.bfloat16,
+            "device_map": self._loader_device_map(self.settings.cosmos_device),
+            "low_cpu_mem_usage": True,
+            "enable_safety_checker": self.settings.cosmos_safety_checker,
+        }
+        if transformer is not None:
+            pipeline_kwargs["transformer"] = transformer
         self.pipe = Cosmos3OmniPipeline.from_pretrained(
             model,
-            torch_dtype=torch.bfloat16,
-            device_map=self.settings.cosmos_device,
-            low_cpu_mem_usage=True,
-            enable_safety_checker=self.settings.cosmos_safety_checker,
+            **pipeline_kwargs,
         )
         if hasattr(self.pipe.transformer, "set_attention_backend"):
             self.pipe.transformer.set_attention_backend("native")
@@ -102,6 +148,21 @@ class CosmosRuntime:
         self.pipe.scheduler = UniPCMultistepScheduler.from_config(
             self.scheduler_config, flow_shift=flow_shift, use_karras_sigmas=False
         )
+        total_steps = int(params.get("num_inference_steps", 35))
+
+        def on_step_end(
+            _pipeline: Any,
+            step_index: int,
+            _timestep: Any,
+            callback_kwargs: dict[str, Any],
+        ) -> dict[str, Any]:
+            completed = step_index + 1
+            progress(
+                self._denoise_progress(step_index, total_steps),
+                f"Cosmos denoising step {completed}/{total_steps}",
+            )
+            return callback_kwargs
+
         kwargs: dict[str, Any] = {
             "prompt": params.get("prepared_prompt", job["prompt"]),
             "negative_prompt": params.get("negative_prompt") or None,
@@ -112,12 +173,14 @@ class CosmosRuntime:
             ),
             "height": height,
             "width": width,
-            "num_inference_steps": int(params.get("num_inference_steps", 35)),
+            "num_inference_steps": total_steps,
             "guidance_scale": float(params.get("guidance_scale", 4.0)),
             "generator": torch.Generator(
                 device=self.settings.cosmos_device
             ).manual_seed(job["seed"]),
             "output_type": "pil",
+            "callback_on_step_end": on_step_end,
+            "callback_on_step_end_tensor_inputs": ["latents"],
         }
         if job["mode"] != "cosmos_image":
             kwargs["fps"] = float(params.get("fps", 24))
@@ -133,12 +196,44 @@ class CosmosRuntime:
             kwargs["condition_video_keep"] = params.get(
                 "condition_video_keep", "first"
             )
-        progress(0.15, "Cosmos denoising")
+        progress(0.15, f"Cosmos denoising step 0/{total_steps}")
         started = time.perf_counter()
-        with torch.inference_mode():
-            result = self.pipe(**kwargs)
+        vae = self.pipe.vae
+        original_decode = vae.decode
+        had_instance_decode = "decode" in vae.__dict__
+        previous_instance_decode = vae.__dict__.get("decode")
+        decode_seconds = 0.0
+        decode_calls = 0
+
+        def timed_decode(*args: Any, **decode_kwargs: Any) -> Any:
+            nonlocal decode_calls, decode_seconds
+            progress(0.86, "Cosmos VAE decoding output")
+            decode_started = time.perf_counter()
+            decoded = original_decode(*args, **decode_kwargs)
+            torch.cuda.synchronize(self.settings.cosmos_device)
+            call_seconds = time.perf_counter() - decode_started
+            decode_calls += 1
+            decode_seconds += call_seconds
+            logger.info(
+                "Cosmos VAE decode %d completed in %.3f seconds",
+                decode_calls,
+                call_seconds,
+            )
+            progress(0.93, f"Cosmos VAE decode complete ({call_seconds:.1f}s)")
+            return decoded
+
+        vae.decode = timed_decode
+        try:
+            with torch.inference_mode():
+                result = self.pipe(**kwargs)
+        finally:
+            if had_instance_decode:
+                vae.decode = previous_instance_decode
+            else:
+                delattr(vae, "decode")
         torch.cuda.synchronize(self.settings.cosmos_device)
         elapsed = time.perf_counter() - started
+        progress(0.94, "Cosmos encoding output file")
         if job["mode"] == "cosmos_image":
             image: Any = result.video
             while isinstance(image, (list, tuple)):
@@ -185,6 +280,8 @@ class CosmosRuntime:
                 "model": self.loaded_model,
                 "device": self.settings.cosmos_device,
                 "generation_seconds": round(elapsed, 3),
+                "vae_decode_seconds": round(decode_seconds, 3),
+                "vae_decode_calls": decode_calls,
                 "width": width,
                 "height": height,
                 "seed": job["seed"],

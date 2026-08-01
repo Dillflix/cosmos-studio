@@ -13,6 +13,19 @@ const MODES = {
   vace_control_edit: { hint: "Regenerate a whole control clip or only white mask regions; black mask regions are preserved.", size: "832x480", frames: 81, fps: 16, steps: 30, guidance: 5, flow: 3 },
 };
 
+const RESOLUTION_PRESETS = {
+  cosmos: [
+    { label: "Recommended native", native: true, sizes: [["1280x720", "1280×720 — native landscape"], ["720x1280", "720×1280 — native portrait"]] },
+    { label: "Balanced", sizes: [["1024x1024", "1024×1024 square"], ["960x544", "960×544 landscape"], ["544x960", "544×960 portrait"], ["768x768", "768×768 square"], ["768x432", "768×432 landscape"], ["432x768", "432×768 portrait"]] },
+    { label: "Fast / diagnostic", sizes: [["640x640", "640×640 square"], ["640x384", "640×384 landscape"], ["384x640", "384×640 portrait"], ["512x512", "512×512 square"], ["512x288", "512×288 landscape"], ["288x512", "288×512 portrait"]] },
+  ],
+  vace: [
+    { label: "Recommended native", native: true, sizes: [["832x480", "832×480 — native landscape"], ["480x832", "480×832 — native portrait"]] },
+    { label: "Balanced", sizes: [["1280x720", "1280×720 landscape — high cost"], ["720x1280", "720×1280 portrait — high cost"], ["768x768", "768×768 square"], ["768x432", "768×432 landscape"], ["432x768", "432×768 portrait"]] },
+    { label: "Fast / diagnostic", sizes: [["640x640", "640×640 square"], ["640x384", "640×384 landscape"], ["384x640", "384×640 portrait"], ["512x512", "512×512 square"], ["512x288", "512×288 landscape"], ["288x512", "288×512 portrait"]] },
+  ],
+};
+
 function randomSeed() {
   const bytes = new Uint32Array(2);
   crypto.getRandomValues(bytes);
@@ -47,6 +60,72 @@ function saveKey() {
   refreshAll();
 }
 
+function toggleControlGroup(selector, enabled) {
+  $$(selector).forEach((element) => {
+    element.hidden = !enabled;
+    element.querySelectorAll("input, select, textarea, button").forEach((control) => {
+      control.disabled = !enabled;
+    });
+  });
+}
+
+function populateResolutionPresets(family, defaultSize) {
+  const select = $("#sizePreset");
+  select.replaceChildren();
+  for (const group of RESOLUTION_PRESETS[family]) {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = group.label;
+    for (const [value, label] of group.sizes) {
+      const option = new Option(label, value);
+      if (group.native) option.dataset.native = "true";
+      optgroup.append(option);
+    }
+    select.append(optgroup);
+  }
+  select.append(new Option("Custom width × height…", "custom"));
+  select.value = defaultSize;
+  const [width, height] = defaultSize.split("x");
+  $("#customWidth").value = width;
+  $("#customHeight").value = height;
+  updateResolutionUI();
+}
+
+function resolutionError(width, height) {
+  if (!Number.isInteger(width) || !Number.isInteger(height)) return "Width and height must be whole numbers.";
+  if (width < 256 || width > 2048 || height < 256 || height > 2048) return "Width and height must be between 256 and 2048.";
+  if (width % 16 || height % 16) return "Width and height must both be divisible by 16.";
+  return "";
+}
+
+function selectedResolution() {
+  const preset = $("#sizePreset").value;
+  const [width, height] = preset === "custom"
+    ? [Number($("#customWidth").value), Number($("#customHeight").value)]
+    : preset.split("x").map(Number);
+  const error = resolutionError(width, height);
+  $("#customWidth").setCustomValidity(error);
+  $("#customHeight").setCustomValidity(error);
+  if (error) throw new Error(error);
+  return `${width}x${height}`;
+}
+
+function updateResolutionUI() {
+  const custom = $("#sizePreset").value === "custom";
+  $("#customResolution").classList.toggle("hidden", !custom);
+  let size;
+  try { size = selectedResolution(); }
+  catch (error) { $("#resolutionHint").textContent = error.message; return; }
+  const [width, height] = size.split("x").map(Number);
+  const nativeSize = MODES[$("#mode").value].size;
+  const [nativeWidth, nativeHeight] = nativeSize.split("x").map(Number);
+  const relativeCost = (width * height) / (nativeWidth * nativeHeight);
+  const selectedOption = $("#sizePreset").selectedOptions[0];
+  const native = selectedOption?.dataset.native === "true";
+  $("#resolutionHint").textContent = native
+    ? "Native recommended resolution for this model family."
+    : `${width.toLocaleString()} × ${height.toLocaleString()} · ${relativeCost.toFixed(2)}× native pixel cost`;
+}
+
 function updateMode(resetValues = true) {
   const mode = $("#mode").value;
   const config = MODES[mode];
@@ -54,15 +133,14 @@ function updateMode(resetValues = true) {
   const isVace = mode.startsWith("vace_");
   $("#modeHint").textContent = config.hint;
   $$('[data-modes]').forEach((element) => element.classList.toggle("visible", element.dataset.modes.split(" ").includes(mode)));
-  $$('[data-video]').forEach((element) => element.hidden = !isVideo);
-  $$('[data-image]').forEach((element) => element.hidden = isVideo);
-  $$('[data-vace]').forEach((element) => element.hidden = !isVace);
-  $$('[data-cosmos-video]').forEach((element) => element.hidden = !(mode.startsWith("cosmos_") && isVideo));
+  toggleControlGroup('[data-video]', isVideo);
+  toggleControlGroup('[data-image]', !isVideo);
+  toggleControlGroup('[data-vace]', isVace);
+  toggleControlGroup('[data-cosmos-video]', mode.startsWith("cosmos_") && isVideo);
   $("#enhancePrompt").checked = !isVace;
-  const sizes = isVace ? ["832x480", "480x832", "1280x720", "720x1280"] : ["1280x720", "720x1280", "1024x1024", "960x544", "544x960"];
-  $("#size").replaceChildren(...sizes.map((size) => new Option(size, size)));
+  populateResolutionPresets(isVace ? "vace" : "cosmos", config.size);
   if (resetValues) {
-    $("#size").value = config.size; $("#numFrames").value = config.frames; $("#fps").value = config.fps;
+    $("#numFrames").value = config.frames; $("#fps").value = config.fps;
     $("#steps").value = config.steps; $("#guidance").value = config.guidance; $("#flowShift").value = config.flow;
   }
 }
@@ -70,11 +148,14 @@ function updateMode(resetValues = true) {
 async function enhanceNow() {
   const prompt = $("#prompt").value.trim();
   if (!prompt) return showMessage("Enter a prompt first.", true);
+  let size;
+  try { size = selectedResolution(); }
+  catch (error) { showMessage(error.message, true); return; }
   $("#enhanceButton").disabled = true; showMessage("Enhancing prompt…");
   try {
     const result = await apiFetch("/v1/prompt/enhance", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, mode: $("#mode").value, size: $("#size").value }),
+      body: JSON.stringify({ prompt, mode: $("#mode").value, size }),
     });
     $("#structuredPrompt").value = JSON.stringify(result.structured_prompt, null, 2);
     $("#structuredWrap").classList.remove("hidden"); $("#enhancePrompt").checked = false;
@@ -87,7 +168,11 @@ function showMessage(message, error = false) { $("#formMessage").textContent = m
 
 async function enqueue(event) {
   event.preventDefault();
+  const queueButton = $("#queueButton");
+  queueButton.disabled = true;
   const form = new FormData($("#generationForm"));
+  try { form.set("size", selectedResolution()); }
+  catch (error) { showMessage(error.message, true); queueButton.disabled = false; return; }
   if (!form.get("seed")) { $("#seed").value = randomSeed(); form.set("seed", $("#seed").value); }
   for (const checkbox of ["enhance_prompt", "enhancement_fallback_to_plain", "enable_sound"]) form.set(checkbox, $(`[name="${checkbox}"]`).checked ? "true" : "false");
   if (!$("#structuredPrompt").value.trim()) form.delete("structured_prompt");
@@ -98,6 +183,7 @@ async function enqueue(event) {
     if ($("#advanceSeed").checked) $("#seed").value = randomSeed();
     await refreshJobs(); location.hash = "queue";
   } catch (error) { showMessage(error.message, true); }
+  finally { queueButton.disabled = false; }
 }
 
 function escapeHtml(text) { const div = document.createElement("div"); div.textContent = text ?? ""; return div.innerHTML; }
@@ -108,7 +194,8 @@ function renderJobs() {
   const list = $("#jobList");
   if (!state.jobs.length) { list.innerHTML = '<p class="empty">No jobs yet.</p>'; return; }
   list.innerHTML = state.jobs.map((job) => {
-    const canCancel = ["queued", "running"].includes(job.state);
+    const canCancel = ["queued", "running"].includes(job.state) && !job.cancel_requested;
+    const stopping = job.state === "running" && job.cancel_requested;
     const detail = job.error || job.progress_message || job.state;
     return `<article class="job-card">
       <span class="job-state ${job.state}"></span>
@@ -116,7 +203,7 @@ function renderJobs() {
       <div class="job-prompt">${escapeHtml(job.prompt)}</div>
       <div class="job-meta">${escapeHtml(detail)} · seed ${job.seed} · ${formatTime(job.created_at)}${job.queue_position ? ` · position ${job.queue_position}` : ""}</div>
       <div class="progress-track"><div class="progress-fill" style="width:${Math.round((job.progress || 0) * 100)}%"></div></div></div>
-      <div class="job-actions">${job.output_url ? `<a class="secondary-button" href="${job.output_url}" target="_blank">Open</a>` : ""}${canCancel ? `<button class="danger-button" data-cancel="${job.id}">Cancel</button>` : ""}</div>
+      <div class="job-actions">${job.output_url ? `<a class="secondary-button" href="${job.output_url}" target="_blank">Open</a>` : ""}${canCancel ? `<button class="danger-button" data-cancel="${job.id}">Cancel</button>` : ""}${stopping ? '<button class="danger-button" disabled>Stopping…</button>' : ""}</div>
     </article>`;
   }).join("");
   $$('[data-cancel]').forEach((button) => button.addEventListener("click", () => cancelJob(button.dataset.cancel)));
@@ -169,6 +256,9 @@ function resetForm() {
 
 $("#generationForm").addEventListener("submit", enqueue);
 $("#mode").addEventListener("change", () => updateMode(true));
+$("#sizePreset").addEventListener("change", updateResolutionUI);
+$("#customWidth").addEventListener("input", updateResolutionUI);
+$("#customHeight").addEventListener("input", updateResolutionUI);
 $("#enhanceButton").addEventListener("click", enhanceNow);
 $("#clearStructured").addEventListener("click", () => { $("#structuredPrompt").value = ""; $("#structuredWrap").classList.add("hidden"); $("#enhancePrompt").checked = true; });
 $("#newSeed").addEventListener("click", () => $("#seed").value = randomSeed());

@@ -26,21 +26,24 @@ FastAPI control plane (CPU, always responsive)
 SQLite job and gallery database
         |
         v
-One persistent generation worker
+One persistent queue supervisor
   |-- assigns no seeds (the API already persisted the concrete seed)
   |-- recovers interrupted jobs after restart
-  |-- lazily loads/unloads one runtime family at a time
-  |-- Cosmos3 adapter
-  `-- Wan2.1-VACE adapter
+  |-- polls running-job cancellation state
+  `-- owns one replaceable inference subprocess
+        |-- lazily loads/unloads one runtime family at a time
+        |-- Cosmos3 adapter
+        `-- Wan2.1-VACE adapter
         |
         v
 Managed outputs + sidecar metadata
 ```
 
-The control plane and worker are in one process for the initial deployment,
-but communicate through durable database state rather than held HTTP requests.
-That preserves a simple one-container installation while leaving a clean seam
-for moving the worker to a separate service later.
+The control plane and queue supervisor share the always-responsive server
+process. Model runtimes and their ROCm context live in a persistent child
+process inside the same container. Normal jobs reuse loaded models. Cancelling
+a running job terminates and replaces only that child, so a native kernel or
+VAE decode cannot hold the API or subsequent queue entries hostage.
 
 ## Modes
 
@@ -71,9 +74,12 @@ frames, whereas VACE accepts full video, mask, and reference-image controls.
 6. At restart, jobs left in `running` state return to `queued` with an
    interruption note. Seeds never change during recovery or retry.
 
-Cancellation is cooperative: a queued job is cancelled immediately; a running
-diffusion call cannot be safely interrupted in the first implementation and is
-marked for cancellation when the adapter returns.
+Queued jobs cancel immediately. For running jobs, the supervisor observes the
+durable cancellation flag within 250 ms, terminates the inference child, waits
+briefly for ROCm cleanup, and escalates to a forced kill if necessary. The job
+is then marked cancelled and the next queue entry receives a fresh inference
+process. This deliberately trades the loaded model cache for bounded
+cancellation when a native call is stuck.
 
 ## Device placement on the target AMD host
 
@@ -115,6 +121,9 @@ traffic at many block boundaries and is a poor match for this asymmetric pair.
 - Heavy libraries are imported lazily so the web service can expose diagnostic
   health information even when ROCm or a checkpoint is unavailable.
 - A runtime family is loaded on first use and retained for subsequent jobs.
+- The runtime and ROCm context exist only in the inference subprocess.
+- Cancelling or crashing inference replaces that process; FastAPI and SQLite
+  remain available throughout.
 - Switching from Cosmos to VACE unloads the previous family, runs garbage
   collection, and clears the ROCm allocator before loading the next family.
 - Model loading errors fail the claimed job but do not kill the control plane.

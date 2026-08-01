@@ -16,7 +16,7 @@ else
 fi
 
 podman build \
-  --build-arg "BASE_IMAGE=${COSMOS_STUDIO_BASE_IMAGE:-localhost/cosmos3-rocm:7.2.4}" \
+  --build-arg "BASE_IMAGE=${COSMOS_STUDIO_BASE_IMAGE:-localhost/cosmos3-rocm-server:7.2.4}" \
   -t "${COSMOS_STUDIO_IMAGE:-localhost/cosmos-studio:0.1.0}" \
   -f "$PROJECT_DIR/Containerfile" \
   "$PROJECT_DIR"

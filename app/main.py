@@ -301,6 +301,11 @@ async def health() -> JSONResponse:
         "backend": settings.backend,
         "device_profile": settings.device_profile,
         "current_job_id": worker.current_job_id,
+        "runtime_family": worker.current_family,
+        "inference_process": {
+            "alive": worker.inference.is_alive,
+            "pid": worker.inference.pid,
+        },
         "queue": counts,
         "last_error": worker.last_error,
         "prompt_enhancement_configured": enhancer.configured,
@@ -333,7 +338,11 @@ async def status() -> dict[str, Any]:
         "current_job_id": worker.current_job_id,
         "queue": store.counts(),
         "last_error": worker.last_error,
-        "runtime_family": worker.runtimes.current_family,
+        "runtime_family": worker.current_family,
+        "inference_process": {
+            "alive": worker.inference.is_alive,
+            "pid": worker.inference.pid,
+        },
     }
 
 
