@@ -31,6 +31,14 @@ class CosmosRuntime:
         loading._caching_allocator_warmup = skip
         modeling._caching_allocator_warmup = skip
 
+    @staticmethod
+    def _loader_device_map(device: str) -> str:
+        if device == "cuda" or device.startswith("cuda:"):
+            return "cuda"
+        if device == "cpu":
+            return "cpu"
+        raise ValueError(f"Unsupported Cosmos device {device!r}")
+
     def _ensure_loaded(self, mode: str, progress: ProgressCallback) -> None:
         import torch
         from diffusers import Cosmos3OmniPipeline
@@ -50,6 +58,10 @@ class CosmosRuntime:
             if ":" in self.settings.cosmos_device
             else 0
         )
+        # Diffusers accepts the strategy name "cuda", not an indexed device
+        # such as "cuda:0". Select the indexed PyTorch device first so the
+        # strategy resolves to the configured GPU.
+        torch.cuda.set_device(device_index)
         actual_name = torch.cuda.get_device_name(device_index)
         expected_name = self.settings.expected_aux_name
         if expected_name and expected_name.lower() not in actual_name.lower():
@@ -61,7 +73,7 @@ class CosmosRuntime:
         self.pipe = Cosmos3OmniPipeline.from_pretrained(
             model,
             torch_dtype=torch.bfloat16,
-            device_map=self.settings.cosmos_device,
+            device_map=self._loader_device_map(self.settings.cosmos_device),
             low_cpu_mem_usage=True,
             enable_safety_checker=self.settings.cosmos_safety_checker,
         )
