@@ -37,6 +37,34 @@ The container defaults to the original local base image name,
 `localhost/cosmos3-rocm:7.2.4`, because that is the environment in which the
 supplied Cosmos image server ran.
 
+For a new installation on the existing Cosmos3 Fedora host, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Dillflix/cosmos-studio/main/scripts/install-fedora.sh | bash
+```
+
+The installer adds the Fedora packages it needs, clones or safely updates the
+project under `~/ai`, builds and starts the rootless Podman container, creates a
+random API key, waits for a healthy server, and adds a source-restricted
+firewalld rule for the detected LAN. It keeps an existing private configuration
+and refuses to overwrite a modified source checkout. The original local ROCm
+base image, `/dev/kfd`, and `/dev/dri` must already be present.
+
+It deliberately starts with the mock backend. To request the real Diffusers
+backend during installation (only after model paths and GPU ordering are known):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Dillflix/cosmos-studio/main/scripts/install-fedora.sh \
+  | env COSMOS_STUDIO_BACKEND=diffusers bash
+```
+
+Useful overrides include `COSMOS_STUDIO_LAN_SUBNET=192.168.0.0/24`,
+`COSMOS_STUDIO_PORT=8000`, `COSMOS_STUDIO_BASE_IMAGE=localhost/your-image:tag`,
+and `COSMOS_STUDIO_CONFIGURE_FIREWALL=0`. The generated API key is stored with
+mode `0600` at `~/.config/cosmos-studio/api-key`.
+
+For a manual installation instead:
+
 ```bash
 cd /path/to/cosmos-studio
 bash scripts/install.sh
