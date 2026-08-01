@@ -47,6 +47,15 @@ function saveKey() {
   refreshAll();
 }
 
+function toggleControlGroup(selector, enabled) {
+  $$(selector).forEach((element) => {
+    element.hidden = !enabled;
+    element.querySelectorAll("input, select, textarea, button").forEach((control) => {
+      control.disabled = !enabled;
+    });
+  });
+}
+
 function updateMode(resetValues = true) {
   const mode = $("#mode").value;
   const config = MODES[mode];
@@ -54,10 +63,10 @@ function updateMode(resetValues = true) {
   const isVace = mode.startsWith("vace_");
   $("#modeHint").textContent = config.hint;
   $$('[data-modes]').forEach((element) => element.classList.toggle("visible", element.dataset.modes.split(" ").includes(mode)));
-  $$('[data-video]').forEach((element) => element.hidden = !isVideo);
-  $$('[data-image]').forEach((element) => element.hidden = isVideo);
-  $$('[data-vace]').forEach((element) => element.hidden = !isVace);
-  $$('[data-cosmos-video]').forEach((element) => element.hidden = !(mode.startsWith("cosmos_") && isVideo));
+  toggleControlGroup('[data-video]', isVideo);
+  toggleControlGroup('[data-image]', !isVideo);
+  toggleControlGroup('[data-vace]', isVace);
+  toggleControlGroup('[data-cosmos-video]', mode.startsWith("cosmos_") && isVideo);
   $("#enhancePrompt").checked = !isVace;
   const sizes = isVace ? ["832x480", "480x832", "1280x720", "720x1280"] : ["1280x720", "720x1280", "1024x1024", "960x544", "544x960"];
   $("#size").replaceChildren(...sizes.map((size) => new Option(size, size)));
@@ -87,6 +96,8 @@ function showMessage(message, error = false) { $("#formMessage").textContent = m
 
 async function enqueue(event) {
   event.preventDefault();
+  const queueButton = $("#queueButton");
+  queueButton.disabled = true;
   const form = new FormData($("#generationForm"));
   if (!form.get("seed")) { $("#seed").value = randomSeed(); form.set("seed", $("#seed").value); }
   for (const checkbox of ["enhance_prompt", "enhancement_fallback_to_plain", "enable_sound"]) form.set(checkbox, $(`[name="${checkbox}"]`).checked ? "true" : "false");
@@ -98,6 +109,7 @@ async function enqueue(event) {
     if ($("#advanceSeed").checked) $("#seed").value = randomSeed();
     await refreshJobs(); location.hash = "queue";
   } catch (error) { showMessage(error.message, true); }
+  finally { queueButton.disabled = false; }
 }
 
 function escapeHtml(text) { const div = document.createElement("div"); div.textContent = text ?? ""; return div.innerHTML; }
