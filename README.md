@@ -145,6 +145,13 @@ same embedded bitsandbytes/NF4 loading pattern used by the supplied
 model. Diffusers downloads it into the persistent Hugging Face cache on first
 use.
 
+The community omni checkpoint declares Cosmos3's optional robotics/action head
+but does not contain that head's five projection tensors. Cosmos Studio
+explicitly disables only that unused head while loading video modes. This
+avoids Diffusers leaving missing tensors on the `meta` device; it does not
+replace, dequantize, or omit any image, video, text, audio, or backbone weights.
+Action-conditioned world-model generation is not exposed by this application.
+
 The Fedora installer migrates only the old, nonfunctional
 `/models/Cosmos3-Super` placeholder. Existing real custom paths and explicitly
 selected model repositories are preserved. Local overrides must point to an

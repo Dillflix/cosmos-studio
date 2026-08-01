@@ -50,7 +50,7 @@ class CosmosRuntime:
 
     def _ensure_loaded(self, mode: str, progress: ProgressCallback) -> None:
         import torch
-        from diffusers import Cosmos3OmniPipeline
+        from diffusers import Cosmos3OmniPipeline, Cosmos3OmniTransformer
 
         model = (
             self.settings.cosmos_image_model
@@ -79,12 +79,37 @@ class CosmosRuntime:
                 f"{self.settings.cosmos_device}, found {actual_name!r}"
             )
         progress(0.05, f"Loading Cosmos checkpoint {model}")
+        transformer = None
+        if mode != "cosmos_image":
+            # The community Super NF4 omni checkpoint has no action-control
+            # projection tensors, although its transformer config enables that
+            # optional head. With low-memory loading, Diffusers leaves those
+            # absent tensors on the meta device and Accelerate then fails while
+            # dispatching the otherwise fully loaded model. Cosmos Studio does
+            # not expose action-conditioned generation, so construct the
+            # transformer with only that unused head disabled. Vision and sound
+            # generation weights, including the quantized 64B backbone, are
+            # loaded unchanged.
+            progress(0.06, "Loading Cosmos transformer (action head disabled)")
+            transformer = Cosmos3OmniTransformer.from_pretrained(
+                model,
+                subfolder="transformer",
+                torch_dtype=torch.bfloat16,
+                device_map=self._loader_device_map(self.settings.cosmos_device),
+                low_cpu_mem_usage=True,
+                action_gen=False,
+            )
+        pipeline_kwargs: dict[str, Any] = {
+            "torch_dtype": torch.bfloat16,
+            "device_map": self._loader_device_map(self.settings.cosmos_device),
+            "low_cpu_mem_usage": True,
+            "enable_safety_checker": self.settings.cosmos_safety_checker,
+        }
+        if transformer is not None:
+            pipeline_kwargs["transformer"] = transformer
         self.pipe = Cosmos3OmniPipeline.from_pretrained(
             model,
-            torch_dtype=torch.bfloat16,
-            device_map=self._loader_device_map(self.settings.cosmos_device),
-            low_cpu_mem_usage=True,
-            enable_safety_checker=self.settings.cosmos_safety_checker,
+            **pipeline_kwargs,
         )
         if hasattr(self.pipe.transformer, "set_attention_backend"):
             self.pipe.transformer.set_attention_backend("native")
