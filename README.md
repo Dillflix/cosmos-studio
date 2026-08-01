@@ -201,10 +201,20 @@ caption; this is not a VACE-specific official prompt enhancer.
 - Jobs run one at a time in creation order.
 - A restart puts interrupted `running` jobs back in `queued` without changing
   the seed.
-- Queued jobs cancel immediately. Running cancellation is cooperative and takes
-  effect after the current pipeline call returns.
+- Queued jobs cancel immediately. A running job executes in an isolated model
+  process; cancellation terminates that process even if ROCm or VAE decoding is
+  stuck, then advances the queue with a fresh process.
 - Switching between Cosmos and VACE unloads the prior runtime before loading
   the next. Grouping jobs by model family reduces reload time.
+
+## Resolution controls
+
+The browser groups model-native resolutions separately from balanced and fast
+diagnostic presets. Both Cosmos and VACE include square, landscape, and portrait
+choices at 512, 640, and 768-class sizes. Selecting **Custom width × height**
+accepts dimensions from 256 through 2048; both values must be divisible by 16.
+The browser shows relative pixel cost and the server repeats the same validation
+for every UI and API request.
 
 ## APIs
 

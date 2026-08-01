@@ -120,7 +120,21 @@
         <details class="advanced full">
           <summary>Generation controls</summary>
           <div class="control-grid">
-            <div class="field"><label for="size">Resolution</label><select id="size" name="size"></select></div>
+            <div class="field resolution-preset">
+              <label for="sizePreset">Resolution</label>
+              <select id="sizePreset"></select>
+              <p id="resolutionHint" class="hint"></p>
+            </div>
+            <div id="customResolution" class="resolution-custom hidden">
+              <div class="field">
+                <label for="customWidth">Custom width</label>
+                <input id="customWidth" type="number" min="256" max="2048" step="16" inputmode="numeric">
+              </div>
+              <div class="field">
+                <label for="customHeight">Custom height</label>
+                <input id="customHeight" type="number" min="256" max="2048" step="16" inputmode="numeric">
+              </div>
+            </div>
             <div class="field" data-video><label for="numFrames">Frames</label><input id="numFrames" name="num_frames" type="number" min="1" max="241" step="4"></div>
             <div class="field" data-video><label for="fps">FPS</label><input id="fps" name="fps" type="number" min="1" max="60" step="1"></div>
             <div class="field"><label for="steps">Inference steps</label><input id="steps" name="num_inference_steps" type="number" min="1" max="100"></div>

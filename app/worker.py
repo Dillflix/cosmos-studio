@@ -8,10 +8,14 @@ from typing import Any
 
 from .config import Settings
 from .db import JobStore
+from .inference_process import InferenceProcess, InferenceProcessError
 from .prompting import PromptEnhancer, prompt_for_runtime
-from .runtimes import RuntimeManager
 
 logger = logging.getLogger("cosmos-studio.worker")
+
+
+class WorkerStopping(Exception):
+    pass
 
 
 class GenerationWorker:
@@ -24,11 +28,12 @@ class GenerationWorker:
         self.settings = settings
         self.store = store
         self.enhancer = enhancer
-        self.runtimes = RuntimeManager(settings)
+        self.inference = InferenceProcess(settings)
         self.wakeup = asyncio.Event()
         self.stopping = asyncio.Event()
         self.task: asyncio.Task[None] | None = None
         self.current_job_id: str | None = None
+        self.current_family: str | None = None
         self.last_error: str | None = None
 
     def start(self) -> None:
@@ -43,30 +48,40 @@ class GenerationWorker:
         self.wakeup.set()
         if self.task:
             await self.task
-        await asyncio.to_thread(self.runtimes.unload)
 
     async def run(self) -> None:
-        while not self.stopping.is_set():
-            job = await asyncio.to_thread(self.store.claim_next)
-            if job is None:
-                self.wakeup.clear()
+        try:
+            while not self.stopping.is_set():
+                job = await asyncio.to_thread(self.store.claim_next)
+                if job is None:
+                    self.wakeup.clear()
+                    try:
+                        await asyncio.wait_for(
+                            self.wakeup.wait(), timeout=self.settings.worker_poll_seconds
+                        )
+                    except TimeoutError:
+                        pass
+                    continue
+                self.current_job_id = job["id"]
+                self.current_family = (
+                    "mock"
+                    if self.settings.backend == "mock"
+                    else ("cosmos" if job["mode"].startswith("cosmos_") else "vace")
+                )
                 try:
-                    await asyncio.wait_for(
-                        self.wakeup.wait(), timeout=self.settings.worker_poll_seconds
-                    )
-                except TimeoutError:
-                    pass
-                continue
-            self.current_job_id = job["id"]
-            try:
-                await self._execute(job)
-                self.last_error = None
-            except Exception as exc:
-                self.last_error = f"{type(exc).__name__}: {exc}"
-                logger.error("Job %s failed:\n%s", job["id"], traceback.format_exc())
-                await asyncio.to_thread(self.store.fail, job["id"], self.last_error)
-            finally:
-                self.current_job_id = None
+                    await self._execute(job)
+                    self.last_error = None
+                except WorkerStopping:
+                    break
+                except Exception as exc:
+                    self.last_error = f"{type(exc).__name__}: {exc}"
+                    logger.error("Job %s failed:\n%s", job["id"], traceback.format_exc())
+                    await asyncio.to_thread(self.store.fail, job["id"], self.last_error)
+                finally:
+                    self.current_job_id = None
+                    self.current_family = None
+        finally:
+            await asyncio.to_thread(self.inference.close)
 
     async def _execute(self, job: dict[str, Any]) -> None:
         params = job["params"]
@@ -115,12 +130,27 @@ class GenerationWorker:
         def update_progress(value: float, message: str) -> None:
             self.store.progress(job["id"], value, message)
 
-        result = await asyncio.to_thread(
-            self.runtimes.generate,
-            job,
-            self.settings.output_dir,
-            update_progress,
-        )
+        await asyncio.to_thread(self.inference.submit, job, self.settings.output_dir)
+        result = None
+        while result is None:
+            if self.stopping.is_set():
+                await asyncio.to_thread(self.inference.abort)
+                raise WorkerStopping
+            if await asyncio.to_thread(self.store.is_cancel_requested, job["id"]):
+                await asyncio.to_thread(self.inference.abort)
+                await asyncio.to_thread(self.store.mark_cancelled_after_run, job["id"])
+                logger.info("Cancelled job %s by replacing its inference process", job["id"])
+                return
+            event = await asyncio.to_thread(self.inference.receive, 0.25)
+            if event is None or event.get("job_id") != job["id"]:
+                continue
+            if event["type"] == "progress":
+                update_progress(float(event["value"]), str(event["message"]))
+            elif event["type"] == "error":
+                logger.error("Inference child failed:\n%s", event["traceback"])
+                raise InferenceProcessError(event["error"])
+            elif event["type"] == "result":
+                result = self.inference.result_from_event(event)
         metadata = {
             **result.metadata,
             "job_id": job["id"],
