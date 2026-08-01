@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,8 @@ from typing import Any
 from ..config import Settings
 from ..prompting import parse_size
 from .base import GenerationResult, ProgressCallback
+
+logger = logging.getLogger("cosmos-studio.runtime.cosmos")
 
 
 class CosmosRuntime:
@@ -38,6 +41,12 @@ class CosmosRuntime:
         if device == "cpu":
             return "cpu"
         raise ValueError(f"Unsupported Cosmos device {device!r}")
+
+    @staticmethod
+    def _denoise_progress(step_index: int, total_steps: int) -> float:
+        """Map a completed Diffusers step onto the job progress interval."""
+        completed = min(max(step_index + 1, 0), max(total_steps, 1))
+        return 0.15 + (0.68 * completed / max(total_steps, 1))
 
     def _ensure_loaded(self, mode: str, progress: ProgressCallback) -> None:
         import torch
@@ -114,6 +123,21 @@ class CosmosRuntime:
         self.pipe.scheduler = UniPCMultistepScheduler.from_config(
             self.scheduler_config, flow_shift=flow_shift, use_karras_sigmas=False
         )
+        total_steps = int(params.get("num_inference_steps", 35))
+
+        def on_step_end(
+            _pipeline: Any,
+            step_index: int,
+            _timestep: Any,
+            callback_kwargs: dict[str, Any],
+        ) -> dict[str, Any]:
+            completed = step_index + 1
+            progress(
+                self._denoise_progress(step_index, total_steps),
+                f"Cosmos denoising step {completed}/{total_steps}",
+            )
+            return callback_kwargs
+
         kwargs: dict[str, Any] = {
             "prompt": params.get("prepared_prompt", job["prompt"]),
             "negative_prompt": params.get("negative_prompt") or None,
@@ -124,12 +148,14 @@ class CosmosRuntime:
             ),
             "height": height,
             "width": width,
-            "num_inference_steps": int(params.get("num_inference_steps", 35)),
+            "num_inference_steps": total_steps,
             "guidance_scale": float(params.get("guidance_scale", 4.0)),
             "generator": torch.Generator(
                 device=self.settings.cosmos_device
             ).manual_seed(job["seed"]),
             "output_type": "pil",
+            "callback_on_step_end": on_step_end,
+            "callback_on_step_end_tensor_inputs": ["latents"],
         }
         if job["mode"] != "cosmos_image":
             kwargs["fps"] = float(params.get("fps", 24))
@@ -145,12 +171,44 @@ class CosmosRuntime:
             kwargs["condition_video_keep"] = params.get(
                 "condition_video_keep", "first"
             )
-        progress(0.15, "Cosmos denoising")
+        progress(0.15, f"Cosmos denoising step 0/{total_steps}")
         started = time.perf_counter()
-        with torch.inference_mode():
-            result = self.pipe(**kwargs)
+        vae = self.pipe.vae
+        original_decode = vae.decode
+        had_instance_decode = "decode" in vae.__dict__
+        previous_instance_decode = vae.__dict__.get("decode")
+        decode_seconds = 0.0
+        decode_calls = 0
+
+        def timed_decode(*args: Any, **decode_kwargs: Any) -> Any:
+            nonlocal decode_calls, decode_seconds
+            progress(0.86, "Cosmos VAE decoding output")
+            decode_started = time.perf_counter()
+            decoded = original_decode(*args, **decode_kwargs)
+            torch.cuda.synchronize(self.settings.cosmos_device)
+            call_seconds = time.perf_counter() - decode_started
+            decode_calls += 1
+            decode_seconds += call_seconds
+            logger.info(
+                "Cosmos VAE decode %d completed in %.3f seconds",
+                decode_calls,
+                call_seconds,
+            )
+            progress(0.93, f"Cosmos VAE decode complete ({call_seconds:.1f}s)")
+            return decoded
+
+        vae.decode = timed_decode
+        try:
+            with torch.inference_mode():
+                result = self.pipe(**kwargs)
+        finally:
+            if had_instance_decode:
+                vae.decode = previous_instance_decode
+            else:
+                delattr(vae, "decode")
         torch.cuda.synchronize(self.settings.cosmos_device)
         elapsed = time.perf_counter() - started
+        progress(0.94, "Cosmos encoding output file")
         if job["mode"] == "cosmos_image":
             image: Any = result.video
             while isinstance(image, (list, tuple)):
@@ -197,6 +255,8 @@ class CosmosRuntime:
                 "model": self.loaded_model,
                 "device": self.settings.cosmos_device,
                 "generation_seconds": round(elapsed, 3),
+                "vae_decode_seconds": round(decode_seconds, 3),
+                "vae_decode_calls": decode_calls,
                 "width": width,
                 "height": height,
                 "seed": job["seed"],
